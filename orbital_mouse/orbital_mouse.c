@@ -271,6 +271,30 @@ void set_orbital_mouse_angle(uint8_t angle) {
   set_orbital_mouse_angle_fractional((uint16_t)angle << 8);
 }
 
+// Adds one wheel step for the direction of the wheel key in `held_mask`.
+static void add_wheel_step(uint8_t held_mask) {
+  switch (held_mask) {
+    case HELD_W_U: state.wheel_y += WHEEL_TAP_STEP_Q2_6; break;
+    case HELD_W_D: state.wheel_y -= WHEEL_TAP_STEP_Q2_6; break;
+    case HELD_W_L: state.wheel_x -= WHEEL_TAP_STEP_Q2_6; break;
+    case HELD_W_R: state.wheel_x += WHEEL_TAP_STEP_Q2_6; break;
+  }
+}
+
+// Sends a report with the whole parts of the accumulated deltas, retaining the
+// fractional parts for the next update.
+static void flush_mouse_report(void) {
+  state.report.x = state.x / 256;
+  state.report.y = state.y / 256;
+  state.x -= (int16_t)state.report.x * 256;
+  state.y -= (int16_t)state.report.y * 256;
+  state.report.h = state.wheel_x / 64;
+  state.report.v = state.wheel_y / 64;
+  state.wheel_x -= (int16_t)state.report.h * 64;
+  state.wheel_y -= (int16_t)state.report.v * 64;
+  host_mouse_send(&state.report);
+}
+
 bool process_record_orbital_mouse(uint16_t keycode, keyrecord_t* record) {
   if (!(IS_MOUSE_KEYCODE(keycode) ||
         (OM_CS_U <= keycode && keycode <= OM_SEL8))) {
@@ -280,18 +304,23 @@ bool process_record_orbital_mouse(uint16_t keycode, keyrecord_t* record) {
   uint8_t held_mask = keycode_to_held_mask(keycode);
   if (held_mask != 0) {
     if (held_mask & WHEEL_MASK) {
-      if (record->event.pressed) {
+      if (IS_ENCODEREVENT(record->event)) {
+        // A rotary encoder detent presses and releases the key within a single
+        // task iteration, so the periodic wheel movement never observes the key
+        // as held. Emit the step directly on the press, like a native mouse
+        // wheel key does, so that each detent scrolls exactly one step.
+        if (record->event.pressed) {
+          add_wheel_step(held_mask);
+          flush_mouse_report();
+        }
+      } else if (record->event.pressed) {
         state.wheel_ticked &= ~held_mask;
       } else if (!(state.wheel_ticked & held_mask)) {
-        // A wheel key that no update observed as held is a tap: emit one wheel
-        // step. Notably a rotary encoder presses and releases the key within a
-        // single task iteration, so each detent scrolls one step.
-        switch (held_mask) {
-          case HELD_W_U: state.wheel_y += WHEEL_TAP_STEP_Q2_6; break;
-          case HELD_W_D: state.wheel_y -= WHEEL_TAP_STEP_Q2_6; break;
-          case HELD_W_L: state.wheel_x -= WHEEL_TAP_STEP_Q2_6; break;
-          case HELD_W_R: state.wheel_x += WHEEL_TAP_STEP_Q2_6; break;
-        }
+        // A wheel key that no update observed as held is a tap: emit one step
+        // and send it right away, so that a quick tap is not merged with or
+        // canceled by whatever is accumulated next.
+        add_wheel_step(held_mask);
+        flush_mouse_report();
       }
     }
     // Update `held_keys` bitfield.
@@ -473,14 +502,6 @@ void housekeeping_task_orbital_mouse(void) {
   // Schedule when task should run again, or go to sleep if inactive.
   state.timer = active ? ((now + ORBITAL_MOUSE_INTERVAL_MS) | 1) : 0;
 
-  // Set whole part of movement deltas in report and retain fractional parts.
-  state.report.x = state.x / 256;
-  state.report.y = state.y / 256;
-  state.x -= (int16_t)state.report.x * 256;
-  state.y -= (int16_t)state.report.y * 256;
-  state.report.h = state.wheel_x / 64;
-  state.report.v = state.wheel_y / 64;
-  state.wheel_x -= (int16_t)state.report.h * 64;
-  state.wheel_y -= (int16_t)state.report.v * 64;
-  host_mouse_send(&state.report);
+  // Send the whole part of the movement deltas, retaining fractional parts.
+  flush_mouse_report();
 }
