@@ -56,11 +56,11 @@ A suggested right-handed layout for Orbital Mouse control is
     OM_RELS, OM_HLDS, OM_SEL1, OM_SEL2, OM_SEL3,
 
 Wheel keycodes (`OM_W_U`, `OM_W_D`, `OM_W_L`, `OM_W_R`) scroll continuously
-while held. A wheel key press that no scroll update observes as held — a rotary
-encoder detent, or a quick tap — emits one wheel step right away instead, so
-that each detent of a rotary encoder scrolls exactly one step. The number of
-steps emitted for such a press is set with `ORBITAL_MOUSE_WHEEL_TAP_STEP`
-(default `1.0`; set `0` to disable).
+while held. A wheel key released before the periodic movement has scrolled it —
+a tap, or a rotary encoder detent — emits one wheel step right away instead, so
+that tapping a key or turning an encoder one detent scrolls exactly one step.
+The number of steps emitted for such a press is set with
+`ORBITAL_MOUSE_WHEEL_TAP_STEP` (default `1.0`; set `0` to disable).
 
 Optionally, there are config options to customize Sentence Case. See the
 [Orbital Mouse

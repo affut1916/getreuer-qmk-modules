@@ -146,8 +146,8 @@ static struct {
   // Mouse wheel movement directions.
   int8_t wheel_x_dir;
   int8_t wheel_y_dir;
-  // Wheel direction bits that a housekeeping tick has observed as held.
-  uint8_t wheel_ticked;
+  // Wheel direction bits whose press has already scrolled a whole step.
+  uint8_t wheel_stepped;
   // Heading direction as a Q6.8 value, with 0 => up, 16 * 256 => left, etc.
   uint16_t angle;
   // Selected mouse button as a base-0 index.
@@ -314,11 +314,22 @@ bool process_record_orbital_mouse(uint16_t keycode, keyrecord_t* record) {
           flush_mouse_report();
         }
       } else if (record->event.pressed) {
-        state.wheel_ticked &= ~held_mask;
-      } else if (!(state.wheel_ticked & held_mask)) {
-        // A wheel key that no update observed as held is a tap: emit one step
-        // and send it right away, so that a quick tap is not merged with or
-        // canceled by whatever is accumulated next.
+        state.wheel_stepped &= ~held_mask;
+      } else if (!(state.wheel_stepped & held_mask)) {
+        // The key was released before the periodic movement scrolled it, so this
+        // press is a tap: emit one step, as a native mouse wheel key does.
+        const uint8_t axis_mask = (held_mask & (HELD_W_U | HELD_W_D))
+          ? (HELD_W_U | HELD_W_D)
+          : (HELD_W_L | HELD_W_R);
+        if (!(state.held_keys & (uint8_t)~held_mask & axis_mask)) {
+          // Retain nothing of this press's fractional movement, so that
+          // repeated taps each scroll exactly one step.
+          if (held_mask & (HELD_W_U | HELD_W_D)) {
+            state.wheel_y = 0;
+          } else {
+            state.wheel_x = 0;
+          }
+        }
         add_wheel_step(held_mask);
         flush_mouse_report();
       }
@@ -478,7 +489,14 @@ void housekeeping_task_orbital_mouse(void) {
   if (state.wheel_x_dir || state.wheel_y_dir) {
     state.wheel_x -= state.wheel_x_dir * WHEEL_SPEED_Q2_6;
     state.wheel_y += state.wheel_y_dir * WHEEL_SPEED_Q2_6;
-    state.wheel_ticked |= state.held_keys & WHEEL_MASK;
+    // A whole step is accumulated: note which keys have scrolled, so that
+    // releasing them is not additionally counted as a tap.
+    if (state.wheel_y / 64 != 0) {
+      state.wheel_stepped |= state.held_keys & (HELD_W_U | HELD_W_D);
+    }
+    if (state.wheel_x / 64 != 0) {
+      state.wheel_stepped |= state.held_keys & (HELD_W_L | HELD_W_R);
+    }
     active = true;
   }
 
