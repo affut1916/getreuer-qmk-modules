@@ -131,6 +131,12 @@ static struct {
   // Fractional displacement of the mouse wheel as Q9.6 values.
   int16_t wheel_x;
   int16_t wheel_y;
+  // Wheel steps from taps and encoder detents as Q9.6 values, kept apart from
+  // the fractional movement above. A whole step is a multiple of 64, which is
+  // rounded on its own so that a leftover fraction of the continuous movement
+  // cannot swallow it.
+  int16_t wheel_tap_x;
+  int16_t wheel_tap_y;
   // Current cursor movement speed as a Q9.6 value.
   int16_t speed;
   // Bitfield tracking which movement keys are currently held.
@@ -274,10 +280,10 @@ void set_orbital_mouse_angle(uint8_t angle) {
 // Adds one wheel step for the direction of the wheel key in `held_mask`.
 static void add_wheel_step(uint8_t held_mask) {
   switch (held_mask) {
-    case HELD_W_U: state.wheel_y += WHEEL_TAP_STEP_Q2_6; break;
-    case HELD_W_D: state.wheel_y -= WHEEL_TAP_STEP_Q2_6; break;
-    case HELD_W_L: state.wheel_x -= WHEEL_TAP_STEP_Q2_6; break;
-    case HELD_W_R: state.wheel_x += WHEEL_TAP_STEP_Q2_6; break;
+    case HELD_W_U: state.wheel_tap_y += WHEEL_TAP_STEP_Q2_6; break;
+    case HELD_W_D: state.wheel_tap_y -= WHEEL_TAP_STEP_Q2_6; break;
+    case HELD_W_L: state.wheel_tap_x -= WHEEL_TAP_STEP_Q2_6; break;
+    case HELD_W_R: state.wheel_tap_x += WHEEL_TAP_STEP_Q2_6; break;
   }
 }
 
@@ -288,10 +294,18 @@ static void flush_mouse_report(void) {
   state.report.y = state.y / 256;
   state.x -= (int16_t)state.report.x * 256;
   state.y -= (int16_t)state.report.y * 256;
-  state.report.h = state.wheel_x / 64;
-  state.report.v = state.wheel_y / 64;
-  state.wheel_x -= (int16_t)state.report.h * 64;
-  state.wheel_y -= (int16_t)state.report.v * 64;
+  // Round the continuous wheel movement and the whole steps separately, so
+  // that neither truncates the other.
+  const int16_t wheel_x_steps = state.wheel_x / 64;
+  const int16_t wheel_y_steps = state.wheel_y / 64;
+  const int16_t tap_x_steps = state.wheel_tap_x / 64;
+  const int16_t tap_y_steps = state.wheel_tap_y / 64;
+  state.report.h = wheel_x_steps + tap_x_steps;
+  state.report.v = wheel_y_steps + tap_y_steps;
+  state.wheel_x -= wheel_x_steps * 64;
+  state.wheel_y -= wheel_y_steps * 64;
+  state.wheel_tap_x -= tap_x_steps * 64;
+  state.wheel_tap_y -= tap_y_steps * 64;
   host_mouse_send(&state.report);
 }
 
@@ -318,18 +332,6 @@ bool process_record_orbital_mouse(uint16_t keycode, keyrecord_t* record) {
       } else if (!(state.wheel_stepped & held_mask)) {
         // The key was released before the periodic movement scrolled it, so this
         // press is a tap: emit one step, as a native mouse wheel key does.
-        const uint8_t axis_mask = (held_mask & (HELD_W_U | HELD_W_D))
-          ? (HELD_W_U | HELD_W_D)
-          : (HELD_W_L | HELD_W_R);
-        if (!(state.held_keys & (uint8_t)~held_mask & axis_mask)) {
-          // Retain nothing of this press's fractional movement, so that
-          // repeated taps each scroll exactly one step.
-          if (held_mask & (HELD_W_U | HELD_W_D)) {
-            state.wheel_y = 0;
-          } else {
-            state.wheel_x = 0;
-          }
-        }
         add_wheel_step(held_mask);
         flush_mouse_report();
       }
