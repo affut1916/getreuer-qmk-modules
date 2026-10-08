@@ -34,6 +34,9 @@
 #ifndef ORBITAL_MOUSE_WHEEL_SPEED
 #define ORBITAL_MOUSE_WHEEL_SPEED 0.2
 #endif  // ORBITAL_MOUSE_WHEEL_SPEED
+#ifndef ORBITAL_MOUSE_WHEEL_TAP_STEP
+#define ORBITAL_MOUSE_WHEEL_TAP_STEP 1.0
+#endif  // ORBITAL_MOUSE_WHEEL_TAP_STEP
 #ifndef ORBITAL_MOUSE_FAST_MOVE_FACTOR
 #define ORBITAL_MOUSE_FAST_MOVE_FACTOR 3.0
 #endif  // ORBITAL_MOUSE_SLOW_MOVE_FACTOR
@@ -92,6 +95,9 @@ enum {
   /** Wheel speed in steps/frame as a Q2.6 value. */
   WHEEL_SPEED_Q2_6 = (ORBITAL_MOUSE_WHEEL_SPEED) < 3.99
       ? ((uint8_t)((ORBITAL_MOUSE_WHEEL_SPEED) * 64 + 0.5)) : 255,
+  /** Wheel movement emitted for a tap as a Q2.6 value. */
+  WHEEL_TAP_STEP_Q2_6 = (ORBITAL_MOUSE_WHEEL_TAP_STEP) < 3.99
+      ? ((uint8_t)((ORBITAL_MOUSE_WHEEL_TAP_STEP) * 64 + 0.5)) : 255,
   /** Double click delay in units of intervals. */
   DOUBLE_CLICK_DELAY_INTERVALS =
       (ORBITAL_MOUSE_DBL_DELAY_MS) / (ORBITAL_MOUSE_INTERVAL_MS),
@@ -107,6 +113,8 @@ enum {
   HELD_W_D = 32,
   HELD_W_L = 64,
   HELD_W_R = 128,
+  /** Mask of the wheel direction bits. */
+  WHEEL_MASK = HELD_W_U | HELD_W_D | HELD_W_L | HELD_W_R,
 };
 
 static const uint8_t init_speed_curve[NUM_SPEED_CURVE_INTERVALS] =
@@ -138,6 +146,8 @@ static struct {
   // Mouse wheel movement directions.
   int8_t wheel_x_dir;
   int8_t wheel_y_dir;
+  // Wheel direction bits that a housekeeping tick has observed as held.
+  uint8_t wheel_ticked;
   // Heading direction as a Q6.8 value, with 0 => up, 16 * 256 => left, etc.
   uint16_t angle;
   // Selected mouse button as a base-0 index.
@@ -269,6 +279,21 @@ bool process_record_orbital_mouse(uint16_t keycode, keyrecord_t* record) {
 
   uint8_t held_mask = keycode_to_held_mask(keycode);
   if (held_mask != 0) {
+    if (held_mask & WHEEL_MASK) {
+      if (record->event.pressed) {
+        state.wheel_ticked &= ~held_mask;
+      } else if (!(state.wheel_ticked & held_mask)) {
+        // A wheel key that no update observed as held is a tap: emit one wheel
+        // step. Notably a rotary encoder presses and releases the key within a
+        // single task iteration, so each detent scrolls one step.
+        switch (held_mask) {
+          case HELD_W_U: state.wheel_y += WHEEL_TAP_STEP_Q2_6; break;
+          case HELD_W_D: state.wheel_y -= WHEEL_TAP_STEP_Q2_6; break;
+          case HELD_W_L: state.wheel_x -= WHEEL_TAP_STEP_Q2_6; break;
+          case HELD_W_R: state.wheel_x += WHEEL_TAP_STEP_Q2_6; break;
+        }
+      }
+    }
     // Update `held_keys` bitfield.
     if (record->event.pressed) {
       state.held_keys |= held_mask;
@@ -424,6 +449,7 @@ void housekeeping_task_orbital_mouse(void) {
   if (state.wheel_x_dir || state.wheel_y_dir) {
     state.wheel_x -= state.wheel_x_dir * WHEEL_SPEED_Q2_6;
     state.wheel_y += state.wheel_y_dir * WHEEL_SPEED_Q2_6;
+    state.wheel_ticked |= state.held_keys & WHEEL_MASK;
     active = true;
   }
 

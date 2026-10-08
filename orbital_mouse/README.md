@@ -2,7 +2,7 @@
 
 <table>
 <tr><td><b>Module</b></td><td><tt>getreuer/orbital_mouse</tt></td></tr>
-<tr><td><b>Version</b></td><td>2026-01-27</td></tr>
+<tr><td><b>Version</b></td><td>2026-10-08</td></tr>
 <tr><td><b>Maintainer</b></td><td>Pascal Getreuer (@getreuer)</td></tr>
 <tr><td><b>License</b></td><td><a href="../LICENSE.txt">Apache 2.0</a></td></tr>
 <tr><td><b>Documentation</b></td><td>
@@ -54,6 +54,12 @@ A suggested right-handed layout for Orbital Mouse control is
     OM_W_U , OM_BTNS, OM_U   , OM_DBLS, OM_FAST,
     OM_W_D , OM_L   , OM_D   , OM_R   , OM_SLOW,
     OM_RELS, OM_HLDS, OM_SEL1, OM_SEL2, OM_SEL3,
+
+Wheel keycodes (`OM_W_U`, `OM_W_D`, `OM_W_L`, `OM_W_R`) scroll continuously
+while held. A wheel key that is pressed and released without a scroll update
+observing it as held emits one wheel step instead, so that each detent of a
+rotary encoder scrolls one step. The number of steps emitted for such a tap is
+set with `ORBITAL_MOUSE_WHEEL_TAP_STEP` (default `1.0`; set `0` to disable).
 
 Optionally, there are config options to customize Sentence Case. See the
 [Orbital Mouse
